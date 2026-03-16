@@ -371,7 +371,7 @@ public:
   void sendSelfAdvert(int delay_millis) {
     auto pkt = createSelfAdvert(_prefs.node_name, _prefs.node_lat, _prefs.node_lon);
     if (pkt) {
-      sendFlood(pkt, delay_millis, _prefs.path_hash_mode + 1);
+      sendFlood(pkt, delay_millis, getPathHashSize());
     }
   }
 
@@ -414,7 +414,7 @@ public:
       int len = strlen((char *) &temp[5]);
       auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, _public->channel, temp, 5 + len);
       if (pkt) {
-        sendFlood(pkt, 0, _prefs.path_hash_mode + 1);
+        sendFlood(pkt, 0, getPathHashSize());
         Serial.println("   Sent.");
       } else {
         Serial.println("   ERROR: unable to send");
