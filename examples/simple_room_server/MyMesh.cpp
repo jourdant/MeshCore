@@ -482,12 +482,25 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
         // mesh::Utils::sha256((uint8_t *)&expected_ack_crc, 4, temp, 5 + text_len, self_id.pub_key,
         // PUB_KEY_SIZE);
 
-        auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
-        if (reply) {
-          if (client->out_path_len == OUT_PATH_UNKNOWN) {
-            sendFlood(reply, delay_millis + SERVER_RESPONSE_DELAY, packet->getPathHashSize());
+        if (packet->isRouteFlood()) {
+          // use createPathReturn to piggyback CLI response on PATH packet
+          mesh::Packet *path = createPathReturn(client->id, secret, packet->path, packet->path_len,
+                                                PAYLOAD_TYPE_TXT_MSG, temp, 5 + text_len);
+          if (path) {
+            sendFlood(path, delay_millis + SERVER_RESPONSE_DELAY, packet->getPathHashSize());
           } else {
-            sendDirect(reply, client->out_path, client->out_path_len, delay_millis + SERVER_RESPONSE_DELAY);
+            // fallback to plain datagram if response too large for PATH packet
+            auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+            if (reply) sendFlood(reply, delay_millis + SERVER_RESPONSE_DELAY, packet->getPathHashSize());
+          }
+        } else {
+          auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+          if (reply) {
+            if (client->out_path_len != OUT_PATH_UNKNOWN) {
+              sendDirect(reply, client->out_path, client->out_path_len, delay_millis + SERVER_RESPONSE_DELAY);
+            } else {
+              sendFlood(reply, delay_millis + SERVER_RESPONSE_DELAY, packet->getPathHashSize());
+            }
           }
         }
       }
