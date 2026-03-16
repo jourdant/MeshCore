@@ -56,7 +56,7 @@
 #define ANON_REQ_TYPE_OWNER        0x02
 #define ANON_REQ_TYPE_BASIC        0x03   // just remote clock
 
-#define CLI_REPLY_DELAY_MILLIS      600
+#define CLI_REPLY_DELAY_MILLIS      300
 
 #define LAZY_CONTACTS_WRITE_DELAY    5000
 
@@ -704,7 +704,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
       char *command = (char *)&data[5];
       char *reply = (char *)&temp[5];
       if (is_retry) {
-        *reply = 0;
+        strcpy(reply, "(retry)");
       } else {
         handleCommand(sender_timestamp, command, reply);
       }
@@ -718,17 +718,45 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
         memcpy(temp, &timestamp, 4);        // mostly an extra blob to help make packet_hash unique
         temp[4] = (TXT_TYPE_CLI_DATA << 2); // NOTE: legacy was: TXT_TYPE_PLAIN
 
-        auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
-        if (reply) {
-          if (client->out_path_len == OUT_PATH_UNKNOWN) {
-            sendFlood(reply, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
+        if (packet->isRouteFlood()) {
+          // use createPathReturn to piggyback CLI response on PATH packet
+          mesh::Packet *path = createPathReturn(client->id, secret, packet->path, packet->path_len,
+                                                PAYLOAD_TYPE_TXT_MSG, temp, 5 + text_len);
+          if (path) {
+            sendFlood(path, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
           } else {
-            sendDirect(reply, client->out_path, client->out_path_len, CLI_REPLY_DELAY_MILLIS);
+            // fallback to plain datagram if response too large for PATH packet
+            auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+            if (reply) sendFlood(reply, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
+          }
+        } else {
+          auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+          if (reply) {
+            if (client->out_path_len != OUT_PATH_UNKNOWN) {
+              sendDirect(reply, client->out_path, client->out_path_len, CLI_REPLY_DELAY_MILLIS);
+            } else {
+              sendFlood(reply, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
+            }
           }
         }
       }
     } else {
       MESH_DEBUG_PRINTLN("onPeerDataRecv: possible replay attack detected");
+      // send error response so client doesn't timeout silently
+      uint8_t temp[166];
+      uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
+      memcpy(temp, &timestamp, 4);
+      temp[4] = (TXT_TYPE_CLI_DATA << 2);
+      strcpy((char *)&temp[5], "(ERR: timestamp)");
+      int text_len = strlen((char *)&temp[5]);
+      auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+      if (reply) {
+        if (client->out_path_len != OUT_PATH_UNKNOWN) {
+          sendDirect(reply, client->out_path, client->out_path_len, CLI_REPLY_DELAY_MILLIS);
+        } else {
+          sendFlood(reply, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
+        }
+      }
     }
   }
 }
