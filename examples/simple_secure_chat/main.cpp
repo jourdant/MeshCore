@@ -414,7 +414,7 @@ public:
       int len = strlen((char *) &temp[5]);
       auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, _public->channel, temp, 5 + len);
       if (pkt) {
-        sendFlood(pkt, 0, getPathHashSize());
+        sendFlood(pkt, 0u, getPathHashSize());
         Serial.println("   Sent.");
       } else {
         Serial.println("   ERROR: unable to send");
